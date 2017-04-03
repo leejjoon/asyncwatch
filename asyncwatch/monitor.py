@@ -34,6 +34,40 @@ def _add_flags(flags):
     return reduce(operator.or_, flags)
 
 
+class FileStreamFromFD(io.FileStream):
+    def __init__(self, fd):
+        self._file = None
+        self._fileno = int(fd)
+        self._buffer = bytearray()
+
+        os.set_blocking(fd, False)
+
+    def _file_read(self, nb):
+        # os.set_blocking(self._fileno, False)
+        # print("read start")
+        if nb < 0:
+            try:
+                s = None
+                # print("block?")
+                s0 = os.read(self._fileno, 1024)
+                # print("no block")
+                s = s0
+                while s0:
+                    s0 = os.read(self._fileno, 1024)
+                    # print("read s0: {}".format(s0))
+                    s += s0
+            except BlockingIOError as e:
+                # print("read: {}".format(s))
+                return s
+        else:
+            s = os.read(self._fileno, nb)
+
+        return s
+
+    def _file_write(self, b):
+        return os.write(self._fileno, b.decode("utf-8"))
+
+
 class Monitor:
     """A monitor contains zero or more watches."""
     def __init__(self, error_empty=False):
@@ -46,9 +80,9 @@ class Monitor:
         if self._fd < 0:
             raise OSError("Could not initialize inotify: error %s"
                           % errno_code())
-        self._buffer = open(self._fd, 'rb')
+        # self._buffer = open(self._fd, 'rb')
         #Makes buffer nonblocking
-        self.stream = io.FileStream(self._buffer)
+        self.stream = FileStreamFromFD(self._fd)
         self._watches = {}
         self.error_empty = error_empty
 
@@ -154,7 +188,7 @@ class Monitor:
         return self._watches.copy()
 
     def close(self):
-        self._buffer.close()
+        os.close(self._fd)
 
 
 def watch(*args, **kwargs):
